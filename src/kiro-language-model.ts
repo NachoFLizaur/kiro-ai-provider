@@ -203,7 +203,7 @@ export class KiroLanguageModel implements LanguageModelV3 {
         headers: {
           ...headers(token),
           "amz-sdk-invocation-id": crypto.randomUUID(),
-          "amz-sdk-request": "attempt=1; max=3",
+          "amz-sdk-request": "attempt=1; max=1",
         },
         body: JSON.stringify({ conversationState: state }),
       },
@@ -275,16 +275,20 @@ export class KiroLanguageModel implements LanguageModelV3 {
   ): Promise<Awaited<ReturnType<LanguageModelV3["doGenerate"]>>> {
     const result = await this.doStream(options)
     const content: Array<LanguageModelV3Content> = []
-    const parts: Array<string> = []
-    const tools = new Map<
-      string,
-      { name: string; input: string }
-    >()
+    const textParts: Array<string> = []
+    const toolInputs = new Map<string, { name: string; input: string }>()
     const usage: LanguageModelV3Usage = {
       inputTokens: { total: 0, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
       outputTokens: { total: 0, text: undefined, reasoning: undefined },
     }
     const state = { reason: { unified: "stop", raw: undefined } as LanguageModelV3FinishReason }
+
+    const flushText = () => {
+      if (textParts.length > 0) {
+        content.push({ type: "text", text: textParts.join("") })
+        textParts.length = 0
+      }
+    }
 
     const reader = result.stream.getReader()
 
@@ -293,18 +297,29 @@ export class KiroLanguageModel implements LanguageModelV3 {
       if (done) break
       switch (value.type) {
         case "text-delta":
-          parts.push(value.delta)
+          textParts.push(value.delta)
           break
         case "tool-input-start":
-          tools.set(value.id, { name: value.toolName, input: "" })
+          flushText()
+          toolInputs.set(value.id, { name: value.toolName, input: "" })
           break
         case "tool-input-delta": {
-          const tool = tools.get(value.id)
+          const tool = toolInputs.get(value.id)
           if (tool) tool.input += value.delta
           break
         }
-        case "tool-call":
+        case "tool-call": {
+          const tool = toolInputs.get(value.toolCallId)
+          if (tool) {
+            content.push({
+              type: "tool-call",
+              toolCallId: value.toolCallId,
+              toolName: tool.name,
+              input: tool.input,
+            })
+          }
           break
+        }
         case "finish":
           usage.inputTokens = value.usage.inputTokens
           usage.outputTokens = value.usage.outputTokens
@@ -313,19 +328,7 @@ export class KiroLanguageModel implements LanguageModelV3 {
       }
     }
 
-    const text = parts.join("")
-    if (text.length > 0) {
-      content.push({ type: "text", text })
-    }
-
-    for (const [id, tool] of tools) {
-      content.push({
-        type: "tool-call",
-        toolCallId: id,
-        toolName: tool.name,
-        input: tool.input,
-      })
-    }
+    flushText()
 
     return {
       content,

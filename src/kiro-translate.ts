@@ -13,6 +13,14 @@ import type {
   KiroToolSpec,
 } from "./kiro-api-types"
 
+const safeParseInput = (s: string): Record<string, unknown> => {
+  try {
+    const result = JSON.parse(s)
+    if (typeof result === "object" && result !== null) return result as Record<string, unknown>
+    return {} as Record<string, unknown>
+  } catch { return {} as Record<string, unknown> }
+}
+
 function tools(
   input: ReadonlyArray<LanguageModelV3FunctionTool>,
 ): ReadonlyArray<KiroToolSpec> {
@@ -95,8 +103,8 @@ function history(
                   name: c.toolName,
                   input:
                     typeof c.input === "string"
-                      ? JSON.parse(c.input)
-                      : (c.input ?? {}),
+                      ? safeParseInput(c.input)
+                      : ((c.input ?? {}) as Record<string, unknown>),
                   toolUseId: c.toolCallId,
                 })),
               }

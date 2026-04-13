@@ -107,7 +107,7 @@ function interpret(message: Message): KiroStreamEvent | undefined {
       if ("stop" in payload) return { type: "tool_stop", payload: payload as unknown as KiroToolStopEvent }
       if ("usage" in payload) return { type: "usage", payload: payload as unknown as KiroUsageEvent }
       if ("input" in payload) return { type: "tool_input", payload: payload as unknown as KiroToolInputEvent }
-      return { type: "content", payload: payload as unknown as KiroContentEvent }
+      return undefined
     }
     case "toolUseEvent": {
       if ("stop" in payload) return { type: "tool_stop", payload: payload as unknown as KiroToolStopEvent }
@@ -152,6 +152,7 @@ function iterable(
           return { done: false, value: result.value }
         },
         async return(): Promise<IteratorResult<Uint8Array>> {
+          await reader.cancel()
           reader.releaseLock()
           return { done: true, value: undefined }
         },

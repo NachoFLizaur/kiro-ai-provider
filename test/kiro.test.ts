@@ -1235,7 +1235,7 @@ describe("kiro-language-model", () => {
     expect((opts.headers as Record<string, string>)["amz-sdk-invocation-id"]).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     )
-    expect((opts.headers as Record<string, string>)["amz-sdk-request"]).toBe("attempt=1; max=3")
+    expect((opts.headers as Record<string, string>)["amz-sdk-request"]).toBe("attempt=1; max=1")
 
     const body = JSON.parse(opts.body as string)
     expect(body.conversationState).toBeDefined()
@@ -1580,14 +1580,14 @@ describe("kiro-language-model", () => {
     const result = await model.doGenerate({ prompt: simplePrompt })
 
     expect(result.content).toHaveLength(2)
-    expect(result.content[0].type).toBe("text")
-    if (result.content[0].type === "text") {
-      expect(result.content[0].text).toBe("49,403")
+    expect(result.content[0].type).toBe("tool-call")
+    if (result.content[0].type === "tool-call") {
+      expect(result.content[0].toolName).toBe("thinking")
+      expect(result.content[0].input).toBe('{"thought": "Step 1: multiply"}')
     }
-    expect(result.content[1].type).toBe("tool-call")
-    if (result.content[1].type === "tool-call") {
-      expect(result.content[1].toolName).toBe("thinking")
-      expect(result.content[1].input).toBe('{"thought": "Step 1: multiply"}')
+    expect(result.content[1].type).toBe("text")
+    if (result.content[1].type === "text") {
+      expect(result.content[1].text).toBe("49,403")
     }
     expect(result.finishReason).toEqual({ unified: "tool-calls", raw: undefined })
 
