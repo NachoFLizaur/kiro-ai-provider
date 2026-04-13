@@ -1,6 +1,14 @@
 import { EventStreamCodec } from "@smithy/eventstream-codec"
 import type { Message, MessageHeaders } from "@smithy/types"
-import type { KiroStreamEvent } from "./kiro-api-types"
+import type {
+  KiroStreamEvent,
+  KiroContentEvent,
+  KiroToolStartEvent,
+  KiroToolInputEvent,
+  KiroToolStopEvent,
+  KiroUsageEvent,
+  KiroContextUsageEvent,
+} from "./kiro-api-types"
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -26,6 +34,8 @@ function merge(
   return merged
 }
 
+const MAX_FRAME = 16 * 1024 * 1024 // 16 MB
+
 async function* chunked(
   stream: AsyncIterable<Uint8Array>,
 ): AsyncGenerator<Uint8Array> {
@@ -40,6 +50,8 @@ async function* chunked(
       const merged = merge(buffer, state.total)
       const view = new DataView(merged.buffer, merged.byteOffset)
       const length = view.getUint32(0, false)
+
+      if (length > MAX_FRAME) throw new Error(`Event stream frame too large: ${length}`)
 
       if (state.total < length) break
 
@@ -63,6 +75,14 @@ function header(
   return String(entry.value)
 }
 
+const safeParse = (s: string): Record<string, unknown> | undefined => {
+  try {
+    const result = JSON.parse(s)
+    if (typeof result === "object" && result !== null) return result as Record<string, unknown>
+    return undefined
+  } catch { return undefined }
+}
+
 function interpret(message: Message): KiroStreamEvent | undefined {
   const kind = header(message.headers, ":message-type")
   const event = header(message.headers, ":event-type")
@@ -77,38 +97,39 @@ function interpret(message: Message): KiroStreamEvent | undefined {
   if (message.body.length === 0) return undefined
 
   const body = decoder.decode(message.body)
-  const payload = JSON.parse(body)
+  const payload = safeParse(body)
+  if (!payload) return undefined
 
   switch (event) {
     case "assistantResponseEvent": {
-      if ("content" in payload) return { type: "content", payload }
-      if ("name" in payload) return { type: "tool_start", payload }
-      if ("stop" in payload) return { type: "tool_stop", payload }
-      if ("usage" in payload) return { type: "usage", payload }
-      if ("input" in payload) return { type: "tool_input", payload }
-      return { type: "content", payload }
+      if ("content" in payload) return { type: "content", payload: payload as unknown as KiroContentEvent }
+      if ("name" in payload) return { type: "tool_start", payload: payload as unknown as KiroToolStartEvent }
+      if ("stop" in payload) return { type: "tool_stop", payload: payload as unknown as KiroToolStopEvent }
+      if ("usage" in payload) return { type: "usage", payload: payload as unknown as KiroUsageEvent }
+      if ("input" in payload) return { type: "tool_input", payload: payload as unknown as KiroToolInputEvent }
+      return { type: "content", payload: payload as unknown as KiroContentEvent }
     }
     case "toolUseEvent": {
-      if ("stop" in payload) return { type: "tool_stop", payload }
-      if ("input" in payload) return { type: "tool_input", payload }
-      return { type: "tool_start", payload }
+      if ("stop" in payload) return { type: "tool_stop", payload: payload as unknown as KiroToolStopEvent }
+      if ("input" in payload) return { type: "tool_input", payload: payload as unknown as KiroToolInputEvent }
+      return { type: "tool_start", payload: payload as unknown as KiroToolStartEvent }
     }
     case "contextUsageEvent":
-      return { type: "context_usage", payload }
+      return { type: "context_usage", payload: payload as unknown as KiroContextUsageEvent }
     case "meteringEvent":
-      return { type: "usage", payload }
+      return { type: "usage", payload: payload as unknown as KiroUsageEvent }
     case "content":
-      return { type: "content", payload }
+      return { type: "content", payload: payload as unknown as KiroContentEvent }
     case "tool_start":
-      return { type: "tool_start", payload }
+      return { type: "tool_start", payload: payload as unknown as KiroToolStartEvent }
     case "tool_input":
-      return { type: "tool_input", payload }
+      return { type: "tool_input", payload: payload as unknown as KiroToolInputEvent }
     case "tool_stop":
-      return { type: "tool_stop", payload }
+      return { type: "tool_stop", payload: payload as unknown as KiroToolStopEvent }
     case "usage":
-      return { type: "usage", payload }
+      return { type: "usage", payload: payload as unknown as KiroUsageEvent }
     case "context_usage":
-      return { type: "context_usage", payload }
+      return { type: "context_usage", payload: payload as unknown as KiroContextUsageEvent }
     default:
       return undefined
   }

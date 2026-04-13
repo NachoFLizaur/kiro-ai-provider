@@ -2,6 +2,7 @@ import path from "path"
 import os from "os"
 import { writeFile, mkdir } from "node:fs/promises"
 import { TOKEN_PATH } from "./kiro-auth"
+import { validateRegion } from "./kiro-headers"
 
 const BUILDER_ID_URL = "https://view.awsapps.com/start"
 const CLIENT_PATH = path.join(os.homedir(), ".aws", "sso", "cache", "kiro-client-registration.json")
@@ -15,7 +16,7 @@ const SCOPES = [
 const GRANT_TYPES = ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"]
 const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 const POLLING_MARGIN_MS = 3000
-const USER_AGENT = "kiro-ai-provider/0.0.1"
+const USER_AGENT = "kiro-ai-provider"
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -43,7 +44,7 @@ export async function authenticate(options?: {
   onVerification?: (url: string, code: string) => void
 }): Promise<{ accessToken: string; refreshToken: string; region: string }> {
   const url = options?.startUrl ?? process.env.AWS_SSO_START_URL ?? BUILDER_ID_URL
-  const region = options?.region ?? process.env.AWS_SSO_REGION ?? "us-east-1"
+  const region = validateRegion(options?.region ?? process.env.AWS_SSO_REGION ?? "us-east-1")
   const oidc = `https://oidc.${region}.amazonaws.com`
 
   const registration = await fetch(`${oidc}/client/register`, {
@@ -96,7 +97,7 @@ export async function authenticate(options?: {
 
   options?.onVerification?.(auth.verificationUriComplete, auth.userCode)
 
-  const delay = { ms: auth.interval }
+  const delay = { seconds: auth.interval }
   const deadline = Date.now() + (auth.expiresIn ?? 600) * 1000
 
   while (true) {
@@ -157,18 +158,18 @@ export async function authenticate(options?: {
     }
 
     if (error.error === "authorization_pending") {
-      await sleep(delay.ms * 1000 + POLLING_MARGIN_MS)
+      await sleep(delay.seconds * 1000 + POLLING_MARGIN_MS)
       continue
     }
 
     if (error.error === "slow_down") {
-      delay.ms = delay.ms + 5
-      await sleep(delay.ms * 1000 + POLLING_MARGIN_MS)
+      delay.seconds = delay.seconds + 5
+      await sleep(delay.seconds * 1000 + POLLING_MARGIN_MS)
       continue
     }
 
     if (error.error) throw new Error(`Authentication failed: ${error.error_description ?? error.error}`)
 
-    await sleep(delay.ms * 1000 + POLLING_MARGIN_MS)
+    await sleep(delay.seconds * 1000 + POLLING_MARGIN_MS)
   }
 }

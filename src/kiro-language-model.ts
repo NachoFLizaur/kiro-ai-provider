@@ -9,8 +9,8 @@ import type {
 import { getToken } from "./kiro-auth"
 import { translate } from "./kiro-translate"
 import { decodeEventStream } from "./kiro-eventstream"
-import { KiroAuthError, KiroApiError } from "./kiro-error"
-import { headers } from "./kiro-headers"
+import { KiroAuthError, KiroApiError, KiroStreamError } from "./kiro-error"
+import { headers, validateRegion } from "./kiro-headers"
 import type { KiroStreamEvent, KiroToolSpec } from "./kiro-api-types"
 
 interface KiroProviderOptions {
@@ -195,7 +195,7 @@ export class KiroLanguageModel implements LanguageModelV3 {
     token: string,
     state: ReturnType<typeof translate>,
   ): Promise<Response> {
-    const endpoint = `https://q.${this.config.region ?? "us-east-1"}.amazonaws.com`
+    const endpoint = `https://q.${validateRegion(this.config.region ?? "us-east-1")}.amazonaws.com`
     return (this.config.fetch ?? globalThis.fetch)(
       `${endpoint}/generateAssistantResponse`,
       {
@@ -255,7 +255,9 @@ export class KiroLanguageModel implements LanguageModelV3 {
       throw new KiroApiError({ status: response.status, body: text })
     }
 
-    const stream = readable(response.body!).pipeThrough(
+    if (!response.body) throw new KiroStreamError({ message: "Response body is null" })
+
+    const stream = readable(response.body).pipeThrough(
       transform(this.config.context ?? 200_000),
     )
 

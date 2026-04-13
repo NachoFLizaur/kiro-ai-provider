@@ -1,7 +1,7 @@
 import path from "path"
 import os from "os"
 import { readFile, writeFile, access } from "node:fs/promises"
-import { headers } from "./kiro-headers"
+import { headers, validateRegion } from "./kiro-headers"
 
 interface KiroTokenFile {
   readonly accessToken: string
@@ -19,9 +19,12 @@ export const TOKEN_PATH = path.join(os.homedir(), ".aws", "sso", "cache", "kiro-
 
 const BUFFER_MS = 300_000
 
+const VALID_HASH = /^[a-zA-Z0-9_-]+$/
+
 function resolve(token: KiroTokenFile): Promise<{ clientId: string; clientSecret: string } | undefined> {
   if (token.clientId) return Promise.resolve({ clientId: token.clientId, clientSecret: token.clientSecret ?? "" })
   if (!token.clientIdHash) return Promise.resolve(undefined)
+  if (!VALID_HASH.test(token.clientIdHash)) return Promise.resolve(undefined)
   const ref = path.join(os.homedir(), ".aws", "sso", "cache", `${token.clientIdHash}.json`)
   return readFile(ref, "utf-8")
     .then((text) => JSON.parse(text) as { clientId: string; clientSecret: string })
@@ -37,7 +40,7 @@ const cache: { current: KiroTokenFile | undefined; expires: number } = {
   expires: 0,
 }
 
-const pending: { promise: Promise<string | undefined> | undefined } = { promise: undefined }
+const pending: { token: Promise<string | undefined> | undefined; region: Promise<string> | undefined } = { token: undefined, region: undefined }
 
 function read(): Promise<KiroTokenFile | undefined> {
   return access(TOKEN_PATH)
@@ -58,7 +61,7 @@ function write(token: KiroTokenFile): Promise<void> {
 }
 
 function refresh(token: KiroTokenFile): Promise<string | undefined> {
-  const url = `https://oidc.${token.region}.amazonaws.com/token`
+  const url = `https://oidc.${validateRegion(token.region)}.amazonaws.com/token`
   return resolve(token).then((client) => {
     if (!client) return undefined
     return fetch(url, {
@@ -118,12 +121,12 @@ export function getToken(): Promise<string | undefined> {
       return token.accessToken
     }
 
-    if (!pending.promise) {
-      pending.promise = refresh(token).finally(() => {
-        pending.promise = undefined
+    if (!pending.token) {
+      pending.token = refresh(token).finally(() => {
+        pending.token = undefined
       })
     }
-    return pending.promise
+    return pending.token
   })
 }
 
@@ -138,7 +141,7 @@ const region: { api: string } = { api: "" }
 function probe(apiRegion: string): Promise<boolean> {
   return getToken().then((token) => {
     if (!token) return false
-    return fetch(`https://q.${apiRegion}.amazonaws.com/ListAvailableModels?origin=AI_EDITOR`, {
+    return fetch(`https://q.${validateRegion(apiRegion)}.amazonaws.com/ListAvailableModels?origin=AI_EDITOR`, {
       method: "GET",
       headers: headers(token),
     })
@@ -149,7 +152,8 @@ function probe(apiRegion: string): Promise<boolean> {
 
 export function getApiRegion(): Promise<string> {
   if (region.api) return Promise.resolve(region.api)
-  return probe("us-east-1")
+  if (pending.region) return pending.region
+  pending.region = probe("us-east-1")
     .then((ok) => {
       if (ok) {
         region.api = "us-east-1"
@@ -164,4 +168,8 @@ export function getApiRegion(): Promise<string> {
       })
     })
     .catch(() => "us-east-1")
+    .finally(() => {
+      pending.region = undefined
+    })
+  return pending.region
 }

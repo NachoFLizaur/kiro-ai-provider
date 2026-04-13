@@ -50,6 +50,8 @@ function output(result: LanguageModelV3ToolResultPart["output"]): string {
         .filter((v): v is { type: "text"; text: string } => v.type === "text")
         .map((v) => v.text)
         .join("\n")
+    default:
+      return String((result as { value?: unknown }).value ?? "")
   }
 }
 
