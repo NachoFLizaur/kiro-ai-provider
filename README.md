@@ -135,9 +135,90 @@ const result = streamText({
 
 When enabled, the model can reason step-by-step before responding. Without `providerOptions.kiro.thinking = true`, the thinking tool is filtered out even if registered.
 
+## Error Handling
+
+```typescript
+import { KiroAuthError, KiroApiError, KiroStreamError } from "kiro-ai-provider"
+
+try {
+  const { text } = await generateText({ model, prompt: "Hello" })
+} catch (error) {
+  if (error instanceof KiroAuthError) {
+    // Token missing, expired, or refresh failed
+  }
+  if (error instanceof KiroApiError) {
+    // API returned non-2xx — check error.data.status and error.data.body
+  }
+  if (error instanceof KiroStreamError) {
+    // Event stream decoding failed
+  }
+}
+```
+
+## Environment Variables
+
+| Variable | Description | Used when |
+|----------|-------------|-----------|
+| `AWS_SSO_START_URL` | IAM Identity Center start URL | Fallback when `authenticate()` startUrl is not provided |
+| `AWS_SSO_REGION` | IAM Identity Center region | Fallback when `authenticate()` region is not provided |
+
 ## How it works
 
 The Kiro API uses AWS Event Stream binary protocol (not SSE or JSON). This package handles the binary framing and decoding via `@smithy/eventstream-codec`, translates between the AI SDK's message format and Kiro's `conversationState` format, and maps Kiro's event types to AI SDK stream parts.
+
+## API Reference
+
+### `createKiro(settings?)`
+
+Creates a Kiro provider instance.
+
+```typescript
+interface KiroProviderSettings {
+  context?: number    // Context window size for token estimation (default: auto-detected)
+  region?: string     // API region (default: auto-detected from token)
+  fetch?: typeof fetch // Custom fetch implementation
+}
+```
+
+Returns a `KiroProvider` with a `.languageModel(modelId)` method.
+
+### `authenticate(options?)`
+
+Runs the OIDC device code flow.
+
+```typescript
+interface AuthenticateOptions {
+  startUrl?: string                              // SSO start URL (or $AWS_SSO_START_URL)
+  region?: string                                // OIDC region (or $AWS_SSO_REGION, default: "us-east-1")
+  onVerification?: (url: string, code: string) => void  // Called with the browser URL and user code
+}
+```
+
+### `listModels()`
+
+Returns the available models for the authenticated user. Returns `undefined` if not authenticated.
+
+### `getQuota()`
+
+Returns subscription usage. Returns `undefined` if not authenticated.
+
+```typescript
+{ currentUsage: number, usageLimit: number, subscriptionTitle: string }
+```
+
+### `getToken()` / `hasToken()`
+
+Low-level token access. `getToken()` returns the Bearer token string, `hasToken()` checks if a token file exists.
+
+### `getApiRegion()`
+
+Auto-detects the Kiro API region (`us-east-1` or `eu-central-1`) by probing the endpoints. Result is cached.
+
+## Links
+
+- [GitHub](https://github.com/NachoFLizaur/kiro-ai-provider)
+- [npm](https://www.npmjs.com/package/kiro-ai-provider)
+- [Issues](https://github.com/NachoFLizaur/kiro-ai-provider/issues)
 
 ## License
 
