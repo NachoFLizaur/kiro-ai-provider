@@ -111,6 +111,30 @@ const result = streamText({
 })
 ```
 
+## Thinking Tool
+
+The provider supports a built-in thinking tool for chain-of-thought reasoning. Enable it via providerOptions:
+
+```typescript
+import { createKiro } from "kiro-ai-provider"
+import { streamText, tool } from "ai"
+
+const result = streamText({
+  model: createKiro().languageModel("claude-sonnet-4.6"),
+  tools: {
+    thinking: tool({
+      description: "Internal reasoning tool",
+      parameters: z.object({ thought: z.string() }),
+      execute: async (args) => args.thought,
+    }),
+  },
+  providerOptions: { kiro: { thinking: true } },
+  prompt: "Debug this complex race condition...",
+})
+```
+
+When enabled, the model can reason step-by-step before responding. Without `providerOptions.kiro.thinking = true`, the thinking tool is filtered out even if registered.
+
 ## How it works
 
 The Kiro API uses AWS Event Stream binary protocol (not SSE or JSON). This package handles the binary framing and decoding via `@smithy/eventstream-codec`, translates between the AI SDK's message format and Kiro's `conversationState` format, and maps Kiro's event types to AI SDK stream parts.
