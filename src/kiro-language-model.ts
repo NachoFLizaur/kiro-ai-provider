@@ -219,7 +219,7 @@ export class KiroLanguageModel implements LanguageModelV3 {
       conversationId: this.conversationId,
       tools: options.tools?.filter(
         (t): t is Extract<typeof t, { type: "function" }> =>
-          t.type === "function",
+          t.type === "function" && (t.name !== "thinking" || (options.providerOptions?.kiro as Record<string, unknown>)?.thinking === true),
       ),
     })
 
