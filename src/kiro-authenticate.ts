@@ -1,5 +1,6 @@
 import path from "path"
 import os from "os"
+import { writeFile, mkdir } from "node:fs/promises"
 import { TOKEN_PATH } from "./kiro-auth"
 
 const BUILDER_ID_URL = "https://view.awsapps.com/start"
@@ -20,16 +21,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function mkdir(dir: string): Promise<void> {
-  return import("fs/promises")
-    .then((fs) => fs.mkdir(dir, { recursive: true }).then(() => {}))
-    .catch(() => {})
+function ensureDir(dir: string): Promise<void> {
+  return mkdir(dir, { recursive: true })
+    .then(() => {})
+    .catch((e: unknown) => {
+      console.warn("[kiro-ai-provider]", e instanceof Error ? e.message : e)
+    })
 }
 
 function write(filepath: string, data: unknown): Promise<void> {
-  return Bun.write(filepath, JSON.stringify(data, null, 2))
+  return writeFile(filepath, JSON.stringify(data, null, 2), { mode: 0o600 })
     .then(() => {})
-    .catch(() => {})
+    .catch((e: unknown) => {
+      console.warn("[kiro-ai-provider]", e instanceof Error ? e.message : e)
+    })
 }
 
 export async function authenticate(options?: {
@@ -37,8 +42,8 @@ export async function authenticate(options?: {
   region?: string
   onVerification?: (url: string, code: string) => void
 }): Promise<{ accessToken: string; refreshToken: string; region: string }> {
-  const url = options?.startUrl ?? BUILDER_ID_URL
-  const region = options?.region ?? "us-east-1"
+  const url = options?.startUrl ?? process.env.AWS_SSO_START_URL ?? BUILDER_ID_URL
+  const region = options?.region ?? process.env.AWS_SSO_REGION ?? "us-east-1"
   const oidc = `https://oidc.${region}.amazonaws.com`
 
   const registration = await fetch(`${oidc}/client/register`, {
@@ -92,8 +97,11 @@ export async function authenticate(options?: {
   options?.onVerification?.(auth.verificationUriComplete, auth.userCode)
 
   const delay = { ms: auth.interval }
+  const deadline = Date.now() + (auth.expiresIn ?? 600) * 1000
 
   while (true) {
+    if (Date.now() > deadline) throw new Error("Authentication timed out")
+
     const response = await fetch(`${oidc}/token`, {
       method: "POST",
       headers: {
@@ -118,7 +126,7 @@ export async function authenticate(options?: {
 
       const expires = new Date(Date.now() + tokens.expiresIn * 1000)
 
-      await mkdir(path.dirname(TOKEN_PATH))
+      await ensureDir(path.dirname(TOKEN_PATH))
 
       await write(TOKEN_PATH, {
         accessToken: tokens.accessToken,

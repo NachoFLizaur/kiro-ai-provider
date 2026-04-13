@@ -10,7 +10,12 @@ import { getToken } from "./kiro-auth"
 import { translate } from "./kiro-translate"
 import { decodeEventStream } from "./kiro-eventstream"
 import { KiroAuthError, KiroApiError } from "./kiro-error"
+import { headers } from "./kiro-headers"
 import type { KiroStreamEvent, KiroToolSpec } from "./kiro-api-types"
+
+interface KiroProviderOptions {
+  thinking?: boolean
+}
 
 const THINKING_TOOL: KiroToolSpec = {
   toolSpecification: {
@@ -37,10 +42,14 @@ function readable(
 ): ReadableStream<KiroStreamEvent> {
   return new ReadableStream({
     async start(controller) {
-      for await (const event of decodeEventStream(body)) {
-        controller.enqueue(event)
+      try {
+        for await (const event of decodeEventStream(body)) {
+          controller.enqueue(event)
+        }
+        controller.close()
+      } catch (e) {
+        controller.error(e)
       }
-      controller.close()
     },
   })
 }
@@ -54,7 +63,7 @@ function transform(context: number): TransformStream<
     inputTokens: { total: 0, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
     outputTokens: { total: 0, text: undefined, reasoning: undefined },
   }
-  const state = { text: false, started: false }
+  const state = { text: false, started: false, tool: "" }
 
   return new TransformStream({
     transform(event, controller) {
@@ -81,6 +90,7 @@ function transform(context: number): TransformStream<
             state.text = false
             controller.enqueue({ type: "text-end", id: "txt-0" })
           }
+          state.tool = event.payload.toolUseId
           tools.set(event.payload.toolUseId, {
             name: event.payload.name,
             input: event.payload.input ?? "",
@@ -100,30 +110,28 @@ function transform(context: number): TransformStream<
           return
         }
         case "tool_input": {
-          const entries = [...tools.entries()]
-          const last = entries[entries.length - 1]
-          if (!last) return
-          last[1].input += event.payload.input
+          const entry = tools.get(state.tool)
+          if (!entry) return
+          entry.input += event.payload.input
           controller.enqueue({
             type: "tool-input-delta",
-            id: last[0],
+            id: state.tool,
             delta: event.payload.input,
           })
           return
         }
         case "tool_stop": {
-          const entries = [...tools.entries()]
-          const last = entries[entries.length - 1]
-          if (!last) return
+          const entry = tools.get(state.tool)
+          if (!entry) return
           controller.enqueue({
             type: "tool-input-end",
-            id: last[0],
+            id: state.tool,
           })
           controller.enqueue({
             type: "tool-call",
-            toolCallId: last[0],
-            toolName: last[1].name,
-            input: last[1].input,
+            toolCallId: state.tool,
+            toolName: entry.name,
+            input: entry.input,
           })
           return
         }
@@ -136,7 +144,8 @@ function transform(context: number): TransformStream<
         }
         case "context_usage": {
           const pct = event.payload.contextUsagePercentage ?? event.payload.contextTokens ?? 0
-          usage.inputTokens.total = Math.round((pct / 100) * context)
+          if (!usage.inputTokens.total)
+            usage.inputTokens.total = Math.round((pct / 100) * context)
           usage.outputTokens.total = usage.outputTokens.total || 1
           return
         }
@@ -192,12 +201,7 @@ export class KiroLanguageModel implements LanguageModelV3 {
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          "User-Agent": "aws-sdk-js/1.0.27 ua/2.1 os/darwin lang/js api/codewhispererstreaming#1.0.27 m/E Kiro-ai-provider",
-          "x-amz-user-agent": "aws-sdk-js/1.0.27 Kiro-ai-provider",
-          "x-amzn-codewhisperer-optout": "true",
-          "x-amzn-kiro-agent-mode": "vibe",
+          ...headers(token),
           "amz-sdk-invocation-id": crypto.randomUUID(),
           "amz-sdk-request": "attempt=1; max=3",
         },
@@ -213,13 +217,15 @@ export class KiroLanguageModel implements LanguageModelV3 {
     if (!token)
       throw new KiroAuthError({ message: "No Kiro auth token available" })
 
+    const kiroOpts = options.providerOptions?.kiro as KiroProviderOptions | undefined
+
     const translated = translate({
       prompt: options.prompt,
       modelId: this.modelId,
       conversationId: this.conversationId,
       tools: options.tools?.filter(
         (t): t is Extract<typeof t, { type: "function" }> =>
-          t.type === "function" && (t.name !== "thinking" || (options.providerOptions?.kiro as Record<string, unknown>)?.thinking === true),
+          t.type === "function" && (t.name !== "thinking" || kiroOpts?.thinking === true),
       ),
     })
 
@@ -233,7 +239,7 @@ export class KiroLanguageModel implements LanguageModelV3 {
           userInputMessageContext: {
             ...ctx,
             tools:
-              (options.providerOptions?.kiro as Record<string, unknown>)?.thinking === true &&
+              kiroOpts?.thinking === true &&
               tools.every((t) => t.toolSpecification.name !== "thinking")
                 ? [...tools, THINKING_TOOL]
                 : tools,
@@ -279,33 +285,31 @@ export class KiroLanguageModel implements LanguageModelV3 {
     const state = { reason: { unified: "stop", raw: undefined } as LanguageModelV3FinishReason }
 
     const reader = result.stream.getReader()
-    const read = (): Promise<void> =>
-      reader.read().then(({ done, value }) => {
-        if (done) return
-        switch (value.type) {
-          case "text-delta":
-            parts.push(value.delta)
-            break
-          case "tool-input-start":
-            tools.set(value.id, { name: value.toolName, input: "" })
-            break
-          case "tool-input-delta": {
-            const tool = tools.get(value.id)
-            if (tool) tool.input += value.delta
-            break
-          }
-          case "tool-call":
-            break
-          case "finish":
-            usage.inputTokens = value.usage.inputTokens
-            usage.outputTokens = value.usage.outputTokens
-            state.reason = value.finishReason
-            break
-        }
-        return read()
-      })
 
-    await read()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      switch (value.type) {
+        case "text-delta":
+          parts.push(value.delta)
+          break
+        case "tool-input-start":
+          tools.set(value.id, { name: value.toolName, input: "" })
+          break
+        case "tool-input-delta": {
+          const tool = tools.get(value.id)
+          if (tool) tool.input += value.delta
+          break
+        }
+        case "tool-call":
+          break
+        case "finish":
+          usage.inputTokens = value.usage.inputTokens
+          usage.outputTokens = value.usage.outputTokens
+          state.reason = value.finishReason
+          break
+      }
+    }
 
     const text = parts.join("")
     if (text.length > 0) {

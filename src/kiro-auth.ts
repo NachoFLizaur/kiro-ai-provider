@@ -1,5 +1,7 @@
 import path from "path"
 import os from "os"
+import { readFile, writeFile, access } from "node:fs/promises"
+import { headers } from "./kiro-headers"
 
 interface KiroTokenFile {
   readonly accessToken: string
@@ -21,10 +23,13 @@ function resolve(token: KiroTokenFile): Promise<{ clientId: string; clientSecret
   if (token.clientId) return Promise.resolve({ clientId: token.clientId, clientSecret: token.clientSecret ?? "" })
   if (!token.clientIdHash) return Promise.resolve(undefined)
   const ref = path.join(os.homedir(), ".aws", "sso", "cache", `${token.clientIdHash}.json`)
-  return Bun.file(ref)
-    .json()
-    .then((data: { clientId: string; clientSecret: string }) => ({ clientId: data.clientId, clientSecret: data.clientSecret }))
-    .catch(() => undefined)
+  return readFile(ref, "utf-8")
+    .then((text) => JSON.parse(text) as { clientId: string; clientSecret: string })
+    .then((data) => ({ clientId: data.clientId, clientSecret: data.clientSecret }))
+    .catch((e: unknown) => {
+      console.warn("[kiro-ai-provider]", e instanceof Error ? e.message : e)
+      return undefined
+    })
 }
 
 const cache: { current: KiroTokenFile | undefined; expires: number } = {
@@ -32,21 +37,27 @@ const cache: { current: KiroTokenFile | undefined; expires: number } = {
   expires: 0,
 }
 
+const pending: { promise: Promise<string | undefined> | undefined } = { promise: undefined }
+
 function read(): Promise<KiroTokenFile | undefined> {
-  const file = Bun.file(TOKEN_PATH)
-  return file
-    .exists()
-    .then((found) => (found ? file.text().then((text) => JSON.parse(text) as KiroTokenFile) : undefined))
-    .catch(() => undefined)
+  return access(TOKEN_PATH)
+    .then(() => readFile(TOKEN_PATH, "utf-8"))
+    .then((text) => JSON.parse(text) as KiroTokenFile)
+    .catch((e: unknown) => {
+      console.warn("[kiro-ai-provider]", e instanceof Error ? e.message : e)
+      return undefined
+    })
 }
 
 function write(token: KiroTokenFile): Promise<void> {
-  return Bun.write(TOKEN_PATH, JSON.stringify(token, null, 2))
+  return writeFile(TOKEN_PATH, JSON.stringify(token, null, 2), { mode: 0o600 })
     .then(() => {})
-    .catch(() => {})
+    .catch((e: unknown) => {
+      console.warn("[kiro-ai-provider]", e instanceof Error ? e.message : e)
+    })
 }
 
-function refresh(token: KiroTokenFile): Promise<KiroTokenFile | undefined> {
+function refresh(token: KiroTokenFile): Promise<string | undefined> {
   const url = `https://oidc.${token.region}.amazonaws.com/token`
   return resolve(token).then((client) => {
     if (!client) return undefined
@@ -81,10 +92,15 @@ function refresh(token: KiroTokenFile): Promise<KiroTokenFile | undefined> {
           authMethod: token.authMethod,
           provider: token.provider,
         }
+        cache.current = next
+        cache.expires = new Date(next.expiresAt).getTime() - BUFFER_MS
         write(next)
-        return next
+        return next.accessToken
       })
-      .catch(() => undefined)
+      .catch((e: unknown) => {
+        console.warn("[kiro-ai-provider]", e instanceof Error ? e.message : e)
+        return undefined
+      })
   })
 }
 
@@ -102,42 +118,50 @@ export function getToken(): Promise<string | undefined> {
       return token.accessToken
     }
 
-    return refresh(token).then((refreshed) => {
-      if (!refreshed) return undefined
-      cache.current = refreshed
-      cache.expires = new Date(refreshed.expiresAt).getTime() - BUFFER_MS
-      return refreshed.accessToken
-    })
+    if (!pending.promise) {
+      pending.promise = refresh(token).finally(() => {
+        pending.promise = undefined
+      })
+    }
+    return pending.promise
   })
 }
 
 export function hasToken(): Promise<boolean> {
-  return Bun.file(TOKEN_PATH).exists()
+  return access(TOKEN_PATH)
+    .then(() => true)
+    .catch(() => false)
 }
 
 const region: { api: string } = { api: "" }
 
+function probe(apiRegion: string): Promise<boolean> {
+  return getToken().then((token) => {
+    if (!token) return false
+    return fetch(`https://q.${apiRegion}.amazonaws.com/ListAvailableModels?origin=AI_EDITOR`, {
+      method: "GET",
+      headers: headers(token),
+    })
+      .then((r) => r.ok)
+      .catch(() => false)
+  })
+}
+
 export function getApiRegion(): Promise<string> {
   if (region.api) return Promise.resolve(region.api)
-  return getToken()
-    .then((token) => {
-      if (!token) return "us-east-1"
-      return fetch("https://q.us-east-1.amazonaws.com/ListAvailableModels?origin=AI_EDITOR", {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          "User-Agent": "aws-sdk-js/1.0.27 ua/2.1 os/darwin lang/js api/codewhispererstreaming#1.0.27 m/E Kiro-ai-provider",
-          "x-amz-user-agent": "aws-sdk-js/1.0.27 Kiro-ai-provider",
-          "x-amzn-codewhisperer-optout": "true",
-        },
+  return probe("us-east-1")
+    .then((ok) => {
+      if (ok) {
+        region.api = "us-east-1"
+        return "us-east-1"
+      }
+      return probe("eu-central-1").then((ok2) => {
+        if (ok2) {
+          region.api = "eu-central-1"
+          return "eu-central-1"
+        }
+        return "us-east-1" // don't cache, try again next time
       })
-        .then((r) => (r.ok ? "us-east-1" : "eu-central-1"))
-        .catch(() => "eu-central-1")
     })
     .catch(() => "us-east-1")
-    .then((result) => {
-      region.api = result
-      return result
-    })
 }
