@@ -52,12 +52,19 @@ await authenticate({
 })
 ```
 
-### 3. Environment variables
+You can also set `AWS_SSO_START_URL` and `AWS_SSO_REGION` as environment variables — they're used as defaults when `startUrl` or `region` aren't provided.
+
+
+
+### 3. API key
+
+Requires a Kiro Pro, Pro+, or Power subscription.
 
 ```bash
-export AWS_SSO_START_URL=https://d-xxxxxxxxxx.awsapps.com/start
-export AWS_SSO_REGION=eu-west-1
+export KIRO_API_KEY=your-api-key
 ```
+
+Generate an API key at [app.kiro.dev](https://app.kiro.dev). When set, the API key is used directly — no OIDC login needed.
 
 ## Models
 
@@ -161,6 +168,7 @@ try {
 |----------|-------------|-----------|
 | `AWS_SSO_START_URL` | IAM Identity Center start URL | Fallback when `authenticate()` startUrl is not provided |
 | `AWS_SSO_REGION` | IAM Identity Center region | Fallback when `authenticate()` region is not provided |
+| `KIRO_API_KEY` | API key for Pro, Pro+ or Power subscriptions | Used as bearer token directly, skips OIDC flow |
 
 ## How it works
 

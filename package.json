@@ -1,6 +1,6 @@
 {
   "name": "kiro-ai-provider",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Kiro (AWS) provider for Vercel AI SDK",
   "license": "MIT",
   "main": "dist/index.js",

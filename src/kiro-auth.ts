@@ -108,6 +108,7 @@ function refresh(token: KiroTokenFile): Promise<string | undefined> {
 }
 
 export function getToken(): Promise<string | undefined> {
+  if (process.env.KIRO_API_KEY) return Promise.resolve(process.env.KIRO_API_KEY)
   if (cache.current && Date.now() < cache.expires) return Promise.resolve(cache.current.accessToken)
 
   return read().then((token) => {
@@ -131,6 +132,7 @@ export function getToken(): Promise<string | undefined> {
 }
 
 export function hasToken(): Promise<boolean> {
+  if (process.env.KIRO_API_KEY) return Promise.resolve(true)
   return access(TOKEN_PATH)
     .then(() => true)
     .catch(() => false)
