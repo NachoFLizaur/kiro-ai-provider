@@ -1,10 +1,10 @@
 import { getToken, getApiRegion } from "./kiro-auth"
 import { headers } from "./kiro-headers"
 
-export function getQuota(): Promise<
+export function getQuota(token?: string): Promise<
   { currentUsage: number; usageLimit: number; subscriptionTitle: string } | undefined
 > {
-  return getToken().then((token) => {
+  return (token ? Promise.resolve(token) : getToken()).then((token) => {
     if (!token) return undefined
     return getApiRegion().then((region) =>
       fetch(
