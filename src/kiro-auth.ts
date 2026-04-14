@@ -138,7 +138,7 @@ export function hasToken(): Promise<boolean> {
     .catch(() => false)
 }
 
-const region: { api: string } = { api: "" }
+const region: { api: string; token: string } = { api: "", token: "" }
 
 function probe(apiRegion: string, token?: string): Promise<boolean> {
   return (token ? Promise.resolve(token) : getToken()).then((t) => {
@@ -157,7 +157,7 @@ function probe(apiRegion: string, token?: string): Promise<boolean> {
 }
 
 export function getApiRegion(token?: string): Promise<string> {
-  if (region.api) return Promise.resolve(region.api)
+  if (region.api && region.token === (token ?? "")) return Promise.resolve(region.api)
   if (pending.region) return pending.region
   pending.region = (token ? Promise.resolve(token) : getToken())
     .catch(() => undefined)
@@ -167,12 +167,14 @@ export function getApiRegion(token?: string): Promise<string> {
       return probe("us-east-1", token).then((ok) => {
         if (ok) {
           region.api = "us-east-1"
+          region.token = token ?? ""
           return "us-east-1"
         }
         return probe("eu-central-1", token).then((ok2) => {
           if (ok2) {
-            region.api = "eu-central-1"
-            return "eu-central-1"
+              region.api = "eu-central-1"
+          region.token = token ?? ""
+          return "eu-central-1"
           }
           return "us-east-1" // don't cache, try again next time
         })
