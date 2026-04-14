@@ -140,13 +140,13 @@ export function hasToken(): Promise<boolean> {
 
 const region: { api: string } = { api: "" }
 
-function probe(apiRegion: string): Promise<boolean> {
-  return getToken().then((token) => {
-    if (!token) return false
+function probe(apiRegion: string, token?: string): Promise<boolean> {
+  return (token ? Promise.resolve(token) : getToken()).then((t) => {
+    if (!t) return false
     return fetch(`https://q.${validateRegion(apiRegion)}.amazonaws.com/`, {
       method: "POST",
       headers: {
-        ...headers(token),
+        ...headers(t),
         "X-Amz-Target": "AmazonCodeWhispererService.ListAvailableModels",
       },
       body: JSON.stringify({ origin: "AI_EDITOR" }),
@@ -158,22 +158,18 @@ function probe(apiRegion: string): Promise<boolean> {
 
 export function getApiRegion(token?: string): Promise<string> {
   if (region.api) return Promise.resolve(region.api)
-  if (process.env.KIRO_API_KEY) {
-    region.api = "us-east-1"
-    return Promise.resolve("us-east-1")
-  }
   if (pending.region) return pending.region
   pending.region = (token ? Promise.resolve(token) : getToken())
     .catch(() => undefined)
     .then((token) => {
       if (!token) return "us-east-1"
       // API keys work on any region — probe to detect
-      return probe("us-east-1").then((ok) => {
+      return probe("us-east-1", token).then((ok) => {
         if (ok) {
           region.api = "us-east-1"
           return "us-east-1"
         }
-        return probe("eu-central-1").then((ok2) => {
+        return probe("eu-central-1", token).then((ok2) => {
           if (ok2) {
             region.api = "eu-central-1"
             return "eu-central-1"
