@@ -6,7 +6,7 @@ import type {
   LanguageModelV3StreamPart,
   LanguageModelV3Usage,
 } from "@ai-sdk/provider"
-import { getToken } from "./kiro-auth"
+import { getToken, getApiRegion } from "./kiro-auth"
 import { translate } from "./kiro-translate"
 import { decodeEventStream } from "./kiro-eventstream"
 import { KiroAuthError, KiroApiError, KiroStreamError } from "./kiro-error"
@@ -191,11 +191,12 @@ export class KiroLanguageModel implements LanguageModelV3 {
     this.modelId = modelId
   }
 
-  private callApi(
+  private async callApi(
     token: string,
     state: ReturnType<typeof translate>,
   ): Promise<Response> {
-    const endpoint = `https://q.${validateRegion(this.config.region ?? "us-east-1")}.amazonaws.com/`
+    const region = this.config.region ?? await getApiRegion(token)
+    const endpoint = `https://q.${validateRegion(region)}.amazonaws.com/`
     return (this.config.fetch ?? globalThis.fetch)(
       endpoint,
       {
