@@ -6,7 +6,7 @@ export function getQuota(token?: string): Promise<
 > {
   return (token ? Promise.resolve(token) : getToken()).then((token) => {
     if (!token) return undefined
-    return (token.startsWith("ksk_") ? Promise.resolve("us-east-1") : getApiRegion()).then((region) =>
+    return (getApiRegion(token)).then((region) =>
       fetch(
         `https://q.${region}.amazonaws.com/`,
         {

@@ -167,10 +167,7 @@ export function getApiRegion(token?: string): Promise<string> {
     .catch(() => undefined)
     .then((token) => {
       if (!token) return "us-east-1"
-      if (token.startsWith("ksk_")) {
-        region.api = "us-east-1"
-        return "us-east-1"
-      }
+      // API keys work on any region — probe to detect
       return probe("us-east-1").then((ok) => {
         if (ok) {
           region.api = "us-east-1"
