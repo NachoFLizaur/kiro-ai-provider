@@ -154,19 +154,31 @@ function probe(apiRegion: string): Promise<boolean> {
 
 export function getApiRegion(): Promise<string> {
   if (region.api) return Promise.resolve(region.api)
+  if (process.env.KIRO_API_KEY) {
+    region.api = "us-east-1"
+    return Promise.resolve("us-east-1")
+  }
   if (pending.region) return pending.region
-  pending.region = probe("us-east-1")
-    .then((ok) => {
-      if (ok) {
+  pending.region = getToken()
+    .catch(() => undefined)
+    .then((token) => {
+      if (!token) return "us-east-1"
+      if (token.startsWith("ksk_")) {
         region.api = "us-east-1"
         return "us-east-1"
       }
-      return probe("eu-central-1").then((ok2) => {
-        if (ok2) {
-          region.api = "eu-central-1"
-          return "eu-central-1"
+      return probe("us-east-1").then((ok) => {
+        if (ok) {
+          region.api = "us-east-1"
+          return "us-east-1"
         }
-        return "us-east-1" // don't cache, try again next time
+        return probe("eu-central-1").then((ok2) => {
+          if (ok2) {
+            region.api = "eu-central-1"
+            return "eu-central-1"
+          }
+          return "us-east-1" // don't cache, try again next time
+        })
       })
     })
     .catch(() => "us-east-1")
