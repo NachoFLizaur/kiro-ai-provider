@@ -195,13 +195,14 @@ export class KiroLanguageModel implements LanguageModelV3 {
     token: string,
     state: ReturnType<typeof translate>,
   ): Promise<Response> {
-    const endpoint = `https://q.${validateRegion(this.config.region ?? "us-east-1")}.amazonaws.com`
+    const endpoint = `https://q.${validateRegion(this.config.region ?? "us-east-1")}.amazonaws.com/`
     return (this.config.fetch ?? globalThis.fetch)(
-      `${endpoint}/generateAssistantResponse`,
+      endpoint,
       {
         method: "POST",
         headers: {
           ...headers(token),
+          "X-Amz-Target": "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
           "amz-sdk-invocation-id": crypto.randomUUID(),
           "amz-sdk-request": "attempt=1; max=1",
         },

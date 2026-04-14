@@ -12,9 +12,13 @@ export function listModels(): Promise<Array<{
     .then((token) => {
       if (!token) return undefined
       return getApiRegion().then((region) =>
-        fetch(`https://q.${region}.amazonaws.com/ListAvailableModels?origin=AI_EDITOR`, {
-          method: "GET",
-          headers: headers(token),
+        fetch(`https://q.${region}.amazonaws.com/`, {
+          method: "POST",
+          headers: {
+            ...headers(token),
+            "X-Amz-Target": "AmazonCodeWhispererService.ListAvailableModels",
+          },
+          body: JSON.stringify({ origin: "AI_EDITOR" }),
         })
           .then((response) => {
             if (!response.ok) return undefined

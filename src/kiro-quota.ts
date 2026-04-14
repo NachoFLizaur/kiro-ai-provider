@@ -8,10 +8,14 @@ export function getQuota(token?: string): Promise<
     if (!token) return undefined
     return (token.startsWith("ksk_") ? Promise.resolve("us-east-1") : getApiRegion()).then((region) =>
       fetch(
-        `https://q.${region}.amazonaws.com/getUsageLimits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST`,
+        `https://q.${region}.amazonaws.com/`,
         {
-          method: "GET",
-          headers: headers(token),
+          method: "POST",
+          headers: {
+            ...headers(token),
+            "X-Amz-Target": "AmazonCodeWhispererService.GetUsageLimits",
+          },
+          body: JSON.stringify({ origin: "AI_EDITOR", resourceType: "AGENTIC_REQUEST" }),
         },
       )
         .then((response) => {

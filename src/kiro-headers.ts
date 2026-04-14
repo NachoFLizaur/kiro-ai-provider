@@ -7,7 +7,8 @@ export function validateRegion(region: string): string {
 
 export const headers = (token: string) => ({
   Authorization: `Bearer ${token}`,
-  "Content-Type": "application/json",
+  "Content-Type": "application/x-amz-json-1.0",
+  ...(token.startsWith("ksk_") ? { tokentype: "API_KEY" } : {}),
   "User-Agent": `aws-sdk-js/1.0.27 ua/2.1 os/${process.platform} lang/js api/codewhispererstreaming#1.0.27 m/E Kiro-ai-provider`,
   "x-amz-user-agent": "aws-sdk-js/1.0.27 Kiro-ai-provider",
   "x-amzn-codewhisperer-optout": "true",

@@ -1223,10 +1223,13 @@ describe("kiro-language-model", () => {
 
     expect(fakeFetch).toHaveBeenCalledTimes(1)
     const [url, opts] = fakeFetch.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toBe("https://q.us-east-1.amazonaws.com/generateAssistantResponse")
+    expect(url).toBe("https://q.us-east-1.amazonaws.com/")
     expect(opts.method).toBe("POST")
     expect((opts.headers as Record<string, string>)["Authorization"]).toBe("Bearer my-token")
-    expect((opts.headers as Record<string, string>)["Content-Type"]).toBe("application/json")
+    expect((opts.headers as Record<string, string>)["Content-Type"]).toBe("application/x-amz-json-1.0")
+    expect((opts.headers as Record<string, string>)["X-Amz-Target"]).toBe(
+      "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
+    )
     expect((opts.headers as Record<string, string>)["User-Agent"]).toBe(
       `aws-sdk-js/1.0.27 ua/2.1 os/${process.platform} lang/js api/codewhispererstreaming#1.0.27 m/E Kiro-ai-provider`,
     )
@@ -1240,6 +1243,63 @@ describe("kiro-language-model", () => {
     const body = JSON.parse(opts.body as string)
     expect(body.conversationState).toBeDefined()
     expect(body.conversationState.currentMessage.userInputMessage.content).toBe("hello")
+
+    getTokenMock.mockRestore()
+  })
+
+  test("doStream sends tokentype header for API key tokens", async () => {
+    const { KiroLanguageModel } = await import("../src/kiro-language-model")
+    const authMod = await import("../src/kiro-auth")
+    const getTokenMock = spyOn(authMod, "getToken").mockResolvedValue("ksk_test_api_key")
+
+    const frames = [
+      encode(
+        eventHeaders("event", "usage"),
+        JSON.stringify({ inputTokens: 1, outputTokens: 1 }),
+      ),
+    ]
+
+    const fakeFetch = mock(() => Promise.resolve(mockResponse(frames)))
+
+    const model = new KiroLanguageModel("kiro-v1", {
+      provider: "kiro",
+      fetch: fakeFetch as unknown as typeof globalThis.fetch,
+    })
+
+    const result = await model.doStream({ prompt: simplePrompt })
+    await drain(result.stream)
+
+    const [, opts] = fakeFetch.mock.calls[0] as unknown as [string, RequestInit]
+    expect((opts.headers as Record<string, string>)["tokentype"]).toBe("API_KEY")
+    expect((opts.headers as Record<string, string>)["Content-Type"]).toBe("application/x-amz-json-1.0")
+
+    getTokenMock.mockRestore()
+  })
+
+  test("doStream omits tokentype header for OIDC tokens", async () => {
+    const { KiroLanguageModel } = await import("../src/kiro-language-model")
+    const authMod = await import("../src/kiro-auth")
+    const getTokenMock = spyOn(authMod, "getToken").mockResolvedValue("oidc-bearer-token")
+
+    const frames = [
+      encode(
+        eventHeaders("event", "usage"),
+        JSON.stringify({ inputTokens: 1, outputTokens: 1 }),
+      ),
+    ]
+
+    const fakeFetch = mock(() => Promise.resolve(mockResponse(frames)))
+
+    const model = new KiroLanguageModel("kiro-v1", {
+      provider: "kiro",
+      fetch: fakeFetch as unknown as typeof globalThis.fetch,
+    })
+
+    const result = await model.doStream({ prompt: simplePrompt })
+    await drain(result.stream)
+
+    const [, opts] = fakeFetch.mock.calls[0] as unknown as [string, RequestInit]
+    expect((opts.headers as Record<string, string>)["tokentype"]).toBeUndefined()
 
     getTokenMock.mockRestore()
   })

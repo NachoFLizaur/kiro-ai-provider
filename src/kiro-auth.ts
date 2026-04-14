@@ -143,9 +143,13 @@ const region: { api: string } = { api: "" }
 function probe(apiRegion: string): Promise<boolean> {
   return getToken().then((token) => {
     if (!token) return false
-    return fetch(`https://q.${validateRegion(apiRegion)}.amazonaws.com/ListAvailableModels?origin=AI_EDITOR`, {
-      method: "GET",
-      headers: headers(token),
+    return fetch(`https://q.${validateRegion(apiRegion)}.amazonaws.com/`, {
+      method: "POST",
+      headers: {
+        ...headers(token),
+        "X-Amz-Target": "AmazonCodeWhispererService.ListAvailableModels",
+      },
+      body: JSON.stringify({ origin: "AI_EDITOR" }),
     })
       .then((r) => r.ok)
       .catch(() => false)
