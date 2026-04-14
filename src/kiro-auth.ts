@@ -152,14 +152,14 @@ function probe(apiRegion: string): Promise<boolean> {
   })
 }
 
-export function getApiRegion(): Promise<string> {
+export function getApiRegion(token?: string): Promise<string> {
   if (region.api) return Promise.resolve(region.api)
   if (process.env.KIRO_API_KEY) {
     region.api = "us-east-1"
     return Promise.resolve("us-east-1")
   }
   if (pending.region) return pending.region
-  pending.region = getToken()
+  pending.region = (token ? Promise.resolve(token) : getToken())
     .catch(() => undefined)
     .then((token) => {
       if (!token) return "us-east-1"
