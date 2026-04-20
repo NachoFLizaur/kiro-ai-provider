@@ -1,3 +1,12 @@
+> [!IMPORTANT]
+> **The [Kiro T&C/FAQs](https://kiro.dev/faq/#with-which-tools-can-i-use-my-kiro-subscription) have been updated to introduce the following:**
+>
+> *Kiro subscriptions can be used with Kiro IDE, Kiro CLI, ACP compatible IDEs, and automation in software development (ex: reviews during CI/CD). Use with OpenClaw and similar tools that leverage third-party harnesses is prohibited.*
+>
+> This makes the `kiro-ai-provider` implementation go directly against the new T&C. Please use the [`kiro-acp-ai-provider`](https://www.npmjs.com/package/kiro-acp-ai-provider) package which leverages Kiro ACP to be compliant.
+>
+> **Use this package at your own risk.**
+
 # kiro-ai-provider
 
 Kiro (AWS) provider for the [Vercel AI SDK](https://sdk.vercel.ai). Implements `LanguageModelV3` for streaming chat with tool calling support.
